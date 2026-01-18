@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useFrame, useLoader } from '@react-three/fiber';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
@@ -7,7 +7,6 @@ import * as THREE from 'three';
 export function Avatar({ isSpeaking, emotion }) {
   const [vrm, setVrm] = useState(null);
   
-  // Load the VRM file with the specialized plugin
   const gltf = useLoader(GLTFLoader, '/avatar.vrm', (loader) => {
     loader.register((parser) => {
       return new VRMLoaderPlugin(parser);
@@ -18,70 +17,78 @@ export function Avatar({ isSpeaking, emotion }) {
     if (gltf.userData.vrm) {
       const vrmInstance = gltf.userData.vrm;
       
-      // 1. OPTIMIZE MODEL (Fixes colors/rendering)
+      // Optimization
       VRMUtils.removeUnnecessaryVertices(gltf.scene);
       VRMUtils.combineSkeletons(gltf.scene);
-      vrmInstance.scene.traverse((obj) => {
-        obj.frustumCulled = false; // Prevents flickering when moving
-      });
+      vrmInstance.scene.traverse((obj) => { obj.frustumCulled = false; });
 
-      // 2. FORCE ARMS DOWN (Using Standard Humanoid Bones)
-      // VRM guarantees these bone names exist
+      // Fix Arms (Humanoid Standard)
       const leftArm = vrmInstance.humanoid.getNormalizedBoneNode('leftUpperArm');
       const rightArm = vrmInstance.humanoid.getNormalizedBoneNode('rightUpperArm');
-      
-      if (leftArm) {
-        leftArm.rotation.z = Math.PI / 2.5; // Rotate down ~70 degrees
-        leftArm.rotation.y = 0.1;
-      }
-      if (rightArm) {
-        rightArm.rotation.z = -Math.PI / 2.5; // Mirror for right arm
-        rightArm.rotation.y = -0.1;
-      }
+      if (leftArm) { leftArm.rotation.z = Math.PI / 2.5; leftArm.rotation.y = 0.1; }
+      if (rightArm) { rightArm.rotation.z = -Math.PI / 2.5; rightArm.rotation.y = -0.1; }
 
       setVrm(vrmInstance);
-      console.log("VRM Loaded Successfully!");
     }
   }, [gltf]);
 
   useFrame((state, delta) => {
-    if (vrm) {
-      // Update VRM internal physics (hair/clothes movement)
+    if (vrm && vrm.expressionManager) {
       vrm.update(delta);
 
-      // 3. LIP SYNC (Standard VRM 'aa' Blendshape)
-      if (vrm.expressionManager) {
-        // Calculate volume (Sine wave for now)
-        const volume = isSpeaking ? (Math.sin(state.clock.elapsedTime * 15) + 1) / 2 : 0;
-        
-        // 'aa' is the standard VRM key for "Mouth Open"
-        vrm.expressionManager.setValue('aa', THREE.MathUtils.lerp(vrm.expressionManager.getValue('aa'), volume, 0.2));
-        
-        // 4. EMOTIONS (Standard VRM Keys)
-        // Reset emotions first
-        vrm.expressionManager.setValue('happy', 0);
-        vrm.expressionManager.setValue('angry', 0);
-        vrm.expressionManager.setValue('sad', 0);
+      // --- 1. LIP SYNC ---
+      // We limit the mouth opening slightly (0.8 instead of 1.0) for a more natural look
+      const talkVolume = isSpeaking ? (Math.sin(state.clock.elapsedTime * 15) + 1) / 2 : 0;
+      vrm.expressionManager.setValue('aa', THREE.MathUtils.lerp(vrm.expressionManager.getValue('aa'), talkVolume * 0.8, 0.2));
 
-        // Apply active emotion
-        if (emotion === 'HAPPY') vrm.expressionManager.setValue('happy', 1);
-        if (emotion === 'ANGRY') vrm.expressionManager.setValue('angry', 1);
-        if (emotion === 'SAD') vrm.expressionManager.setValue('sad', 1);
-        
-        // 5. BLINKING (Auto)
-        const blinkVal = Math.sin(state.clock.elapsedTime * 0.5) > 0.98 ? 1 : 0;
-        vrm.expressionManager.setValue('blink', blinkVal);
+      // --- 2. EMOTION TUNING (The Fix) ---
+      // Reset all first
+      const emotions = ['happy', 'angry', 'sad', 'surprised'];
+      emotions.forEach(e => {
+        // Smoothly fade out current emotion
+        const currentVal = vrm.expressionManager.getValue(e);
+        vrm.expressionManager.setValue(e, THREE.MathUtils.lerp(currentVal, 0, 0.1));
+      });
+
+      // Apply New Emotion
+      if (emotion === 'HAPPY') {
+        // FIX: If she is talking, we reduce the smile to 0.4 so it doesn't distort the mouth.
+        // If silent, we set it to 0.6 (pleasant smile) instead of 1.0 (creepy grin).
+        const intensity = isSpeaking ? 0.4 : 0.6;
+        vrm.expressionManager.setValue('happy', THREE.MathUtils.lerp(vrm.expressionManager.getValue('happy'), intensity, 0.1));
       }
       
-      // 6. IDLE HEAD MOVEMENT
+      else if (emotion === 'ANGRY') {
+        vrm.expressionManager.setValue('angry', THREE.MathUtils.lerp(vrm.expressionManager.getValue('angry'), 0.7, 0.1));
+      }
+      
+      else if (emotion === 'SAD') {
+         vrm.expressionManager.setValue('sad', THREE.MathUtils.lerp(vrm.expressionManager.getValue('sad'), 0.7, 0.1));
+      }
+
+      // --- 3. BLINKING ---
+      // Random blinking (every 3-5 seconds)
+      const blinkVal = Math.sin(state.clock.elapsedTime * 0.5) > 0.98 ? 1 : 0;
+      vrm.expressionManager.setValue('blink', blinkVal);
+      
+      // --- 4. HEAD SWAY ---
       const head = vrm.humanoid.getNormalizedBoneNode('head');
       if (head) {
-        head.rotation.y = Math.sin(state.clock.elapsedTime * 0.5) * 0.1;
+        head.rotation.y = Math.sin(state.clock.elapsedTime * 0.5) * 0.05; // Very subtle sway
       }
     }
   });
 
-  // VRM models are usually in meters (approx 1.6 units tall)
-  // We position y: -1.0 to center the chest/face in the camera
-  return <primitive object={gltf.scene} position={[0, -1.0, 0]} rotation={[0, 0, 0]} />;
+  // ... keep all your imports and logic above ...
+
+  // FIX: Added rotation={[0, Math.PI, 0]}
+  // This spins the model 180 degrees so she faces the camera immediately.
+  return (
+    <primitive 
+      object={gltf.scene} 
+      position={[0, -1.5, 0.8]} 
+      rotation={[-0.6, Math.PI, 0]} 
+      scale={1.6}
+    />
+  );
 }
