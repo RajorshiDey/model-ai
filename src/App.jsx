@@ -150,8 +150,8 @@ function App() {
       setDebugVoice("Using System Default Voice (No US Voice Found)");
     }
     
-    utterance.pitch = 1.0; 
-    utterance.rate = 1.0;  
+    utterance.pitch = 1.5; 
+    utterance.rate = 1.2;  
 
     utterance.onstart = () => setIsSpeaking(true);
     utterance.onend = () => setIsSpeaking(false);
