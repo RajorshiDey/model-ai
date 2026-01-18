@@ -121,68 +121,42 @@ function App() {
   };
 
   // 4. ROBUST VOICE SELECTION (The Fix)
-  // const speak = (text) => {
-  //   window.speechSynthesis.cancel();
-  //   const utterance = new SpeechSynthesisUtterance(text);
-  //   const voices = window.speechSynthesis.getVoices();
-    
-  //   // STRATEGY: 
-  //   // 1. Look for explicit "Google US English" (Best on Android)
-  //   // 2. Look for "Samantha" (Best on iOS)
-  //   // 3. Look for "Zira" (Best on Windows)
-  //   // 4. Fallback: ANY voice that contains "en-US" or "en_US"
-    
-  //   let selectedVoice = voices.find(v => v.name.includes('Google US English'));
-    
-  //   if (!selectedVoice) selectedVoice = voices.find(v => v.name === 'Samantha');
-  //   if (!selectedVoice) selectedVoice = voices.find(v => v.name.includes('Zira'));
-    
-  //   // BROAD FALLBACK (Matches "en-US", "en_US", "en-us", etc.)
-  //   if (!selectedVoice) {
-  //     selectedVoice = voices.find(v => v.lang.replace('_', '-').toLowerCase() === 'en-us');
-  //   }
-
-  //   if (selectedVoice) {
-  //     utterance.voice = selectedVoice;
-  //     setDebugVoice(`Voice: ${selectedVoice.name}`); // Show user what voice is picked
-  //   } else {
-  //     setDebugVoice("Using System Default Voice (No US Voice Found)");
-  //   }
-    
-  //   utterance.pitch = 1.0; 
-  //   utterance.rate = 1.0;  
-
-  //   utterance.onstart = () => setIsSpeaking(true);
-  //   utterance.onend = () => setIsSpeaking(false);
-    
-  //   window.speechSynthesis.speak(utterance);
-  // };
-
-  // --- GOOGLE TRANSLATE AUDIO HACK ---
-  const speak = (text, emotion) => {
-    // 1. Stop any previous audio
+  const speak = (text) => {
     window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    const voices = window.speechSynthesis.getVoices();
     
-    // 2. Construct the URL (The Magic Part)
-    // client=tw-ob is the public Google Translate endpoint
-    const encodedText = encodeURIComponent(text);
-    const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=en&client=tw-ob&q=${encodedText}`;
+    // STRATEGY: 
+    // 1. Look for explicit "Google US English" (Best on Android)
+    // 2. Look for "Samantha" (Best on iOS)
+    // 3. Look for "Zira" (Best on Windows)
+    // 4. Fallback: ANY voice that contains "en-US" or "en_US"
 
-    // 3. Play the Audio
-    const audio = new Audio(url);
     
-    // OPTIONAL: Speed control based on emotion (Simple speed only, pitch is hard on MP3s)
-    if (emotion === 'HAPPY') audio.playbackRate = 1.1; 
-    if (emotion === 'SAD') audio.playbackRate = 0.8;
-    if (emotion === 'ANGRY') audio.playbackRate = 1.2;
+    let selectedVoice = voices.find(v => v.name.includes('Google UK English'));
+    
+    if (!selectedVoice) selectedVoice = voices.find(v => v.name === 'Samantha');
+    if (!selectedVoice) selectedVoice = voices.find(v => v.name.includes('Zira'));
+    
+    // BROAD FALLBACK (Matches "en-US", "en_US", "en-us", etc.)
+    if (!selectedVoice) {
+      selectedVoice = voices.find(v => v.lang.replace('_', '-').toLowerCase() === 'en-us');
+    }
 
-    // 4. Sync with Avatar
-    audio.onplay = () => setIsSpeaking(true);
-    audio.onended = () => setIsSpeaking(false);
+    if (selectedVoice) {
+      utterance.voice = selectedVoice;
+      setDebugVoice(`Voice: ${selectedVoice.name}`); // Show user what voice is picked
+    } else {
+      setDebugVoice("Using System Default Voice (No US Voice Found)");
+    }
     
-    // Mobile Chrome requires user interaction for the FIRST audio. 
-    // Since the user clicked the Mic button, this usually works fine.
-    audio.play().catch(e => console.error("Audio Play Error:", e));
+    utterance.pitch = 1.0; 
+    utterance.rate = 1.0;  
+
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = () => setIsSpeaking(false);
+    
+    window.speechSynthesis.speak(utterance);
   };
 
   return (
