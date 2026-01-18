@@ -4,31 +4,37 @@ import Experience from './Experience';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // --- CONFIGURATION ---
-const API_KEY = "AIzaSyBeSxnfwBIoYCtYw3pQHPE62vPU91PEUDk"; // Put your key here
+// const API_KEY = "YOUR_GEMINI_API_KEY"; 
+
+// Access the environment variable
+const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+
+// Safety check (Optional but good for debugging)
+if (!API_KEY) {
+  console.error("Missing Gemini API Key in .env file");
+}
 const genAI = new GoogleGenerativeAI(API_KEY);
 
 const SYSTEM_PROMPT = `
-You are a GenZ Indian girl named Rhea. 
-You speak in "English" 
+You are a GenZ American girl named Rhea. 
 You are witty, friendly, and expressive. 
 Keep answers short (max 2 sentences).
 CRITICAL: Start every response with an emotion tag: [HAPPY], [SAD], [ANGRY], [SURPRISED], or [NEUTRAL].
-Example: [HAPPY] Arre wow! That is amazing news!
+Example: [HAPPY] Oh wow! That is amazing news!
 `;
 
-// Initial Context (Always stays at index 0)
 const INITIAL_HISTORY = [
   { role: "user", parts: [{ text: SYSTEM_PROMPT }] },
-  { role: "model", parts: [{ text: "[HAPPY] Hi! I am Rhea. Kya haal hai?" }] },
+  { role: "model", parts: [{ text: "[HAPPY] Hi! I'm Rhea. What's up?" }] },
 ];
 
 function App() {
-  // --- STATE ---
   const [textResponse, setTextResponse] = useState("Tap the mic to chat!");
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [currentEmotion, setCurrentEmotion] = useState("NEUTRAL");
+  const [debugVoice, setDebugVoice] = useState("Loading voices..."); // VISUAL DEBUGGER
   
-  // 1. LOAD HISTORY FROM LOCAL STORAGE
+  // 1. Load History
   const [history, setHistory] = useState(() => {
     try {
       const saved = localStorage.getItem('chat_history');
@@ -40,73 +46,65 @@ function App() {
 
   const recognitionRef = useRef(null);
 
-  // --- 2. SETUP SPEECH RECOGNITION ---
+  // 2. Setup (Updated to US English)
   useEffect(() => {
+    // FORCE LOAD VOICES
+    const loadVoices = () => {
+      const voices = window.speechSynthesis.getVoices();
+      if (voices.length > 0) {
+        setDebugVoice(`Found ${voices.length} voices.`);
+      }
+    };
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+    loadVoices();
+
     if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       recognitionRef.current = new SpeechRecognition();
       recognitionRef.current.continuous = false;
-      recognitionRef.current.lang = 'en-IN'; 
+      recognitionRef.current.lang = 'en-US'; // Input Language
       
       recognitionRef.current.onresult = async (event) => {
         const transcript = event.results[0][0].transcript;
         console.log("User:", transcript);
         await processGeminiResponse(transcript);
       };
-
+      
       recognitionRef.current.onerror = (e) => console.error("Speech Error:", e);
-    } else {
-      alert("Please use Google Chrome for voice features.");
     }
-  }, []); // Empty dependency array ensures we don't re-bind loop
+  }, []);
 
-  // --- 3. GEMINI AI PROCESSING (FIXED CONTEXT LOGIC) ---
+  // 3. Gemini Logic
   const processGeminiResponse = async (userInput) => {
     setTextResponse("Thinking...");
     
-    // CRITICAL FIX: DO NOT update history state yet.
-    // We send the *current* history to the model, then append the new input via sendMessage.
-
     try {
-      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-      
-      // 1. Start Chat with EXISTING history (Previous conversation)
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
       const chat = model.startChat({ history: history });
-      
-      // 2. Send the NEW message
       const result = await chat.sendMessage(userInput);
       const rawText = result.response.text();
 
-      // 3. Process Response (Extract Emotion)
+      // Extract Emotion
       const emotionMatch = rawText.match(/^\[(.*?)\]/);
       let emotion = "NEUTRAL";
       let cleanText = rawText;
-
       if (emotionMatch) {
         emotion = emotionMatch[1];
         cleanText = rawText.replace(/^\[(.*?)\]/, "").trim();
       }
 
-      // 4. Update UI
       setCurrentEmotion(emotion);
       setTextResponse(cleanText);
       speak(cleanText);
 
-      // 5. UPDATE HISTORY & STORAGE (Atomic Update)
-      // Now we add BOTH the User Input and Model Response at once.
-      // This prevents "User, User" duplicates if the API fails.
+      // Update History
       setHistory((prev) => {
-        const newInteraction = [
-          { role: "user", parts: [{ text: userInput }] },
+        const updated = [...prev, 
+          { role: "user", parts: [{ text: userInput }] }, 
           { role: "model", parts: [{ text: rawText }] }
         ];
         
-        const updated = [...prev, ...newInteraction];
-
-        // SLIDING WINDOW LOGIC (Keep System Prompt + Last 10)
         if (updated.length > 12) {
-          // Index 0 is System. Keep it.
-          // Slice the last 10 items from the end.
           const trimmed = [updated[0], ...updated.slice(-10)];
           localStorage.setItem('chat_history', JSON.stringify(trimmed));
           return trimmed;
@@ -119,51 +117,70 @@ function App() {
     } catch (error) {
       console.error("AI Error:", error);
       setTextResponse("Network error. Try again.");
-      // Note: We do NOT update history here, so the failed user message isn't saved. 
-      // This keeps the conversation clean.
     }
   };
 
-  // --- 4. TEXT TO SPEECH ---
+  // 4. ROBUST VOICE SELECTION (The Fix)
   const speak = (text) => {
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     const voices = window.speechSynthesis.getVoices();
-    const hindiVoice = voices.find(v => v.lang.includes('hi') || v.lang.includes('IN'));
-    if (hindiVoice) utterance.voice = hindiVoice;
-    utterance.pitch = 1.1; 
-    utterance.rate = 1.0;
+    
+    // STRATEGY: 
+    // 1. Look for explicit "Google US English" (Best on Android)
+    // 2. Look for "Samantha" (Best on iOS)
+    // 3. Look for "Zira" (Best on Windows)
+    // 4. Fallback: ANY voice that contains "en-US" or "en_US"
+    
+    let selectedVoice = voices.find(v => v.name.includes('Google US English'));
+    
+    if (!selectedVoice) selectedVoice = voices.find(v => v.name === 'Samantha');
+    if (!selectedVoice) selectedVoice = voices.find(v => v.name.includes('Zira'));
+    
+    // BROAD FALLBACK (Matches "en-US", "en_US", "en-us", etc.)
+    if (!selectedVoice) {
+      selectedVoice = voices.find(v => v.lang.replace('_', '-').toLowerCase() === 'en-us');
+    }
+
+    if (selectedVoice) {
+      utterance.voice = selectedVoice;
+      setDebugVoice(`Voice: ${selectedVoice.name}`); // Show user what voice is picked
+    } else {
+      setDebugVoice("Using System Default Voice (No US Voice Found)");
+    }
+    
+    utterance.pitch = 1.0; 
+    utterance.rate = 1.0;  
+
     utterance.onstart = () => setIsSpeaking(true);
     utterance.onend = () => setIsSpeaking(false);
+    
     window.speechSynthesis.speak(utterance);
   };
 
-  // --- RENDER ---
   return (
-    <div style={{ width: '100vw', height: '100vh', background: '#121212', position: 'relative' }}>
+    <div style={{ width: '100vw', height: '100vh', background: '#121212', position: 'relative', overflow: 'hidden' }}>
       
+      {/* DEBUGGER: Shows active voice at the top */}
+      <div style={{ position: 'absolute', top: 10, left: 10, color: 'lime', fontSize: '10px', zIndex: 10 }}>
+        {debugVoice}
+      </div>
+
       <Canvas shadows camera={{ position: [0, 1.5, 1.5], fov: 30 }} style={{ height: '100vh' }}>
         <color attach="background" args={['#202025']} />
         <Experience isSpeaking={isSpeaking} emotion={currentEmotion} />
       </Canvas>
       
-      {/* UI Controls */}
+      {/* UI Overlay */}
       <div style={{ 
-        position: 'absolute', bottom: '30px', left: '50%', transform: 'translateX(-50%)', 
+        position: 'absolute', bottom: '40px', left: '50%', transform: 'translateX(-50%)', 
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', width: '90%', maxWidth: '400px'
       }}>
         
-        {/* Reset Button */}
-        <button 
-           onClick={() => { localStorage.removeItem('chat_history'); window.location.reload(); }}
-           style={{ position: 'absolute', top: -500, right: -100, padding: '5px', fontSize: '10px' }}
-        >
-          Reset Memory
-        </button>
-
         <div style={{ 
-          background: 'rgba(255, 255, 255, 0.9)', padding: '15px', borderRadius: '20px', 
-          textAlign: 'center', color: '#333', fontWeight: '500', minWidth: '200px' 
+          background: 'rgba(255, 255, 255, 0.95)', padding: '15px 20px', borderRadius: '25px', 
+          textAlign: 'center', color: '#222', fontWeight: '600', fontSize: '16px',
+          boxShadow: '0 4px 15px rgba(0,0,0,0.3)', minWidth: '250px'
         }}>
           {textResponse}
         </div>
@@ -173,10 +190,19 @@ function App() {
           style={{ 
             width: '70px', height: '70px', borderRadius: '50%', border: 'none', 
             background: 'linear-gradient(135deg, #ff4081, #f50057)', color: 'white', fontSize: '30px', 
-            cursor: 'pointer', boxShadow: '0 4px 15px rgba(245, 0, 87, 0.4)'
+            cursor: 'pointer', boxShadow: '0 8px 20px rgba(245, 0, 87, 0.4)', transition: 'transform 0.2s'
           }}
+          onMouseDown={(e) => e.currentTarget.style.transform = 'scale(0.95)'}
+          onMouseUp={(e) => e.currentTarget.style.transform = 'scale(1.0)'}
         >
           🎤
+        </button>
+
+        <button 
+           onClick={() => { localStorage.removeItem('chat_history'); window.location.reload(); }}
+           style={{ background: 'none', border: 'none', color: '#666', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}
+        >
+          Reset Conversation
         </button>
       </div>
     </div>
