@@ -171,7 +171,7 @@ function App() {
       if (emotion === 'HAPPY') audio.playbackRate = 1.055; 
       else if (emotion === 'SAD') audio.playbackRate = 1.05; 
       else if (emotion === 'ANGRY') audio.playbackRate = 1.055;
-      else audio.playbackRate = 1.2; // Default Young Pitch
+      else audio.playbackRate = 1.055; // Default Young Pitch
 
       // Handlers
       audio.onplay = () => {
