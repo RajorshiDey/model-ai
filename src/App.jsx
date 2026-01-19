@@ -130,10 +130,11 @@ function App() {
   };
 
   // 5. EDGE TTS (High Quality via Vercel API)
+  // 5. EDGE TTS (High Quality via Vercel API)
   const speakRobust = async (text, emotion) => {
     window.speechSynthesis.cancel(); // Stop any system voice
 
-    // Truncate to avoid API timeout
+    // Truncate to avoid timeout
     const safeText = text.length > 800 ? text.substring(0, 800) : text;
     const encodedText = encodeURIComponent(safeText);
     
@@ -167,20 +168,19 @@ function App() {
       audio.onended = () => {
         setIsSpeaking(false);
         setDebugStatus("Ready");
-        URL.revokeObjectURL(blobUrl); // Cleanup memory
+        URL.revokeObjectURL(blobUrl); 
       };
 
       audio.onerror = (e) => {
         console.warn("Edge API Failed", e);
         setIsSpeaking(false);
-        fallbackSystemSpeak(text); // Fallback
+        fallbackSystemSpeak(text); 
       };
 
       await audio.play();
 
     } catch (error) {
       console.error("Edge TTS Error:", error);
-      // If Vercel API fails (or on localhost), use System Voice
       fallbackSystemSpeak(text);
     }
   };
