@@ -6,9 +6,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 // --- CONFIGURATION ---
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY; 
 
-if (!API_KEY) {
-  console.error("Missing Gemini API Key. Check .env file.");
-}
+if (!API_KEY) console.error("Missing Gemini API Key in .env file");
 
 const genAI = new GoogleGenerativeAI(API_KEY);
 
@@ -41,7 +39,7 @@ function App() {
   });
 
   const recognitionRef = useRef(null);
-  const audioRef = useRef(new Audio()); // Single Audio instance
+  const audioRef = useRef(new Audio()); // Keep a single audio instance
 
   // 2. Setup Speech Recognition
   useEffect(() => {
@@ -59,14 +57,14 @@ function App() {
       
       recognitionRef.current.onerror = (e) => {
         console.error("Speech Error:", e);
-        setDebugStatus("Mic Error");
+        setDebugStatus("Mic Error (Tap again)");
       };
     }
   }, []);
 
-  // 3. MOBILE AUDIO UNLOCKER
+  // 3. MOBILE AUDIO UNLOCKER (Critical)
   const handleMicClick = () => {
-    // Play silent sound to unlock mobile speakers
+    // Play silent sound to unlock mobile speakers immediately
     const audio = audioRef.current;
     if (audio) {
       audio.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAgZGF0YQQAAAAAAA==";
@@ -104,8 +102,8 @@ function App() {
       setTextResponse(cleanText);
       setDebugStatus("Speaking...");
       
-      // CALL TTS
-      speakRobust(cleanText, emotion);
+      // CALL THE PROXY
+      speakViaProxy(cleanText, emotion);
 
       // Update History
       setHistory((prev) => {
@@ -129,50 +127,48 @@ function App() {
     }
   };
 
-  // 5. EDGE TTS (High Quality via Vercel API)
-  // 5. EDGE TTS (High Quality via Vercel API)
-  const speakRobust = async (text, emotion) => {
-    window.speechSynthesis.cancel(); // Stop any system voice
+  // 5. THE PROXY AUDIO PLAYER
+  const speakViaProxy = async (text, emotion) => {
+    window.speechSynthesis.cancel(); // Stop system voice
 
-    // Truncate to avoid timeout
-    const safeText = text.length > 800 ? text.substring(0, 800) : text;
+    // Truncate text slightly to prevent timeouts
+    const safeText = text.length > 500 ? text.substring(0, 500) : text;
     const encodedText = encodeURIComponent(safeText);
     
-    // Voice: Ava (American Female)
-    const voice = "en-US-AvaNeural";
-    
-    // Call YOUR Vercel API Route
-    const url = `/api/tts?text=${encodedText}&voice=${voice}`;
+    // Call YOUR Vercel API (which calls Google)
+    const url = `/api/tts?text=${encodedText}`;
 
     try {
       const response = await fetch(url);
-      if (!response.ok) throw new Error("Vercel API Error");
+      if (!response.ok) throw new Error("Proxy API Error");
 
+      // 1. Get Blob
       const blob = await response.blob();
       const blobUrl = URL.createObjectURL(blob);
       
       const audio = audioRef.current;
       audio.src = blobUrl;
 
-      // Emotion Hack (Speed/Pitch)
-      if (emotion === 'HAPPY') audio.playbackRate = 1.1;
+      // 2. Emotion Hack (Speed/Pitch)
+      if (emotion === 'HAPPY') audio.playbackRate = 1.15;
       else if (emotion === 'SAD') audio.playbackRate = 0.85;
       else if (emotion === 'ANGRY') audio.playbackRate = 1.25;
       else audio.playbackRate = 1.0;
 
+      // 3. Handlers
       audio.onplay = () => {
         setIsSpeaking(true);
-        setDebugStatus("Playing (Edge Ava)");
+        setDebugStatus("Playing (Google Proxy)");
       };
 
       audio.onended = () => {
         setIsSpeaking(false);
         setDebugStatus("Ready");
-        URL.revokeObjectURL(blobUrl); 
+        URL.revokeObjectURL(blobUrl); // Cleanup
       };
 
       audio.onerror = (e) => {
-        console.warn("Edge API Failed", e);
+        console.warn("Audio Error", e);
         setIsSpeaking(false);
         fallbackSystemSpeak(text); 
       };
@@ -180,12 +176,13 @@ function App() {
       await audio.play();
 
     } catch (error) {
-      console.error("Edge TTS Error:", error);
+      console.error("TTS Proxy Error:", error);
+      // If server fails, use System Voice (Safety Net)
       fallbackSystemSpeak(text);
     }
   };
 
-  // 6. SYSTEM VOICE FALLBACK (Reliable Offline)
+  // 6. SYSTEM VOICE FALLBACK
   const fallbackSystemSpeak = (text) => {
     setDebugStatus("Playing (System)");
     const utterance = new SpeechSynthesisUtterance(text);
