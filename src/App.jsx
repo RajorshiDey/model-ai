@@ -62,25 +62,25 @@ function App() {
     }
   }, []);
 
-  // 3. MOBILE AUDIO UNLOCKER (FIXED)
+  // 3. MICROSOFT CLICK HANDLER (Fixed Mouth Bug)
   const handleMicClick = () => {
     const audio = audioRef.current;
-
-    // --- THE FIX STARTS HERE ---
+    
     if (audio) {
-      // 1. Remove listeners so the "Fallack" doesn't trigger when we stop it
+      // CRITICAL FIX: Remove listeners so the mouth DOES NOT move for silence
+      audio.onplay = null;
       audio.onended = null;
       audio.onerror = null;
       
-      // 2. Stop any current audio immediately
+      // Stop any talking immediately
       audio.pause();
       audio.currentTime = 0;
-      
-      // 3. Play silent sound to keep speakers unlocked
+      setIsSpeaking(false); // Force mouth closed
+
+      // Play silent unlock sound
       audio.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAgZGF0YQQAAAAAAA==";
       audio.play().catch(e => console.log("Audio unlock already active"));
     }
-    // --- THE FIX ENDS HERE ---
 
     // Start Listening
     if (recognitionRef.current) {
@@ -113,7 +113,6 @@ function App() {
       setTextResponse(cleanText);
       setDebugStatus("Speaking...");
       
-      // CALL THE PROXY
       speakViaProxy(cleanText, emotion);
 
       // Update History
@@ -138,19 +137,18 @@ function App() {
     }
   };
 
-  // 5. THE PROXY AUDIO PLAYER
+  // 5. PROXY AUDIO PLAYER (With Pitch Fix)
   const speakViaProxy = async (text, emotion) => {
-    window.speechSynthesis.cancel(); // Stop system voice
+    window.speechSynthesis.cancel(); 
 
-    // IMPORTANT: Clear listeners on start too
+    // Reset listeners immediately
     const audio = audioRef.current;
+    audio.onplay = null;
     audio.onended = null;
     audio.onerror = null;
 
     const safeText = text.length > 500 ? text.substring(0, 500) : text;
     const encodedText = encodeURIComponent(safeText);
-    
-    // Call YOUR Vercel API
     const url = `/api/tts?text=${encodedText}`;
 
     try {
@@ -162,16 +160,23 @@ function App() {
       
       audio.src = blobUrl;
 
-      // Emotion Hack (Speed/Pitch)
-      if (emotion === 'HAPPY') audio.playbackRate = 1.15;
-      else if (emotion === 'SAD') audio.playbackRate = 0.85;
-      else if (emotion === 'ANGRY') audio.playbackRate = 1.25;
-      else audio.playbackRate = 1.0;
+      // --- PITCH & YOUTH HACK ---
+      // 1. Disable Pitch Correction (Allows high pitch when fast)
+      audio.preservesPitch = false; 
+      audio.mozPreservesPitch = false; 
+      audio.webkitPreservesPitch = false;
+
+      // 2. Set Speed (Since pitch correction is OFF, faster = higher pitch = younger)
+      // 1.2 is a good "Young American Girl" baseline
+      if (emotion === 'HAPPY') audio.playbackRate = 1.25; 
+      else if (emotion === 'SAD') audio.playbackRate = 0.9; 
+      else if (emotion === 'ANGRY') audio.playbackRate = 1.3;
+      else audio.playbackRate = 1.2; // Default Young Pitch
 
       // Handlers
       audio.onplay = () => {
         setIsSpeaking(true);
-        setDebugStatus("Playing (Google Proxy)");
+        setDebugStatus("Playing");
       };
 
       audio.onended = () => {
@@ -194,31 +199,23 @@ function App() {
     }
   };
 
-  // 6. SYSTEM VOICE FALLBACK
+  // 6. FALLBACK
   const fallbackSystemSpeak = (text) => {
     setDebugStatus("Playing (System)");
     const utterance = new SpeechSynthesisUtterance(text);
-    
     const voices = window.speechSynthesis.getVoices();
     const selectedVoice = voices.find(v => v.name.includes('Google US English')) || voices.find(v => v.lang.includes('en-US'));
     if (selectedVoice) utterance.voice = selectedVoice;
-    
-    utterance.pitch = 1.1;
+    utterance.pitch = 1.2; // Higher pitch for system voice too
     utterance.rate = 1.1;
-    
     utterance.onstart = () => setIsSpeaking(true);
-    utterance.onend = () => {
-      setIsSpeaking(false);
-      setDebugStatus("Ready");
-    };
-    
+    utterance.onend = () => { setIsSpeaking(false); setDebugStatus("Ready"); };
     window.speechSynthesis.speak(utterance);
   };
 
   return (
     <div style={{ width: '100vw', height: '100vh', background: '#121212', position: 'relative', overflow: 'hidden' }}>
       
-      {/* Debug Info */}
       <div style={{ position: 'absolute', top: 10, left: 10, color: '#00d2ff', fontSize: '12px', zIndex: 10, fontFamily: 'monospace' }}>
         Status: {debugStatus}
       </div>
@@ -228,12 +225,10 @@ function App() {
         <Experience isSpeaking={isSpeaking} emotion={currentEmotion} />
       </Canvas>
       
-      {/* UI Overlay */}
       <div style={{ 
         position: 'absolute', bottom: '40px', left: '50%', transform: 'translateX(-50%)', 
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', width: '90%', maxWidth: '400px'
       }}>
-        
         <div style={{ 
           background: 'rgba(255, 255, 255, 0.95)', padding: '15px 20px', borderRadius: '25px', 
           textAlign: 'center', color: '#222', fontWeight: '600', fontSize: '16px',
