@@ -39,7 +39,7 @@ function App() {
   });
 
   const recognitionRef = useRef(null);
-  const audioRef = useRef(new Audio()); // Keep a single audio instance
+  const audioRef = useRef(new Audio()); 
 
   // 2. Setup Speech Recognition
   useEffect(() => {
@@ -62,15 +62,26 @@ function App() {
     }
   }, []);
 
-  // 3. MOBILE AUDIO UNLOCKER (Critical)
+  // 3. MOBILE AUDIO UNLOCKER (FIXED)
   const handleMicClick = () => {
-    // Play silent sound to unlock mobile speakers immediately
     const audio = audioRef.current;
+
+    // --- THE FIX STARTS HERE ---
     if (audio) {
+      // 1. Remove listeners so the "Fallack" doesn't trigger when we stop it
+      audio.onended = null;
+      audio.onerror = null;
+      
+      // 2. Stop any current audio immediately
+      audio.pause();
+      audio.currentTime = 0;
+      
+      // 3. Play silent sound to keep speakers unlocked
       audio.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAgZGF0YQQAAAAAAA==";
       audio.play().catch(e => console.log("Audio unlock already active"));
     }
-    
+    // --- THE FIX ENDS HERE ---
+
     // Start Listening
     if (recognitionRef.current) {
       recognitionRef.current.start();
@@ -131,31 +142,33 @@ function App() {
   const speakViaProxy = async (text, emotion) => {
     window.speechSynthesis.cancel(); // Stop system voice
 
-    // Truncate text slightly to prevent timeouts
+    // IMPORTANT: Clear listeners on start too
+    const audio = audioRef.current;
+    audio.onended = null;
+    audio.onerror = null;
+
     const safeText = text.length > 500 ? text.substring(0, 500) : text;
     const encodedText = encodeURIComponent(safeText);
     
-    // Call YOUR Vercel API (which calls Google)
+    // Call YOUR Vercel API
     const url = `/api/tts?text=${encodedText}`;
 
     try {
       const response = await fetch(url);
       if (!response.ok) throw new Error("Proxy API Error");
 
-      // 1. Get Blob
       const blob = await response.blob();
       const blobUrl = URL.createObjectURL(blob);
       
-      const audio = audioRef.current;
       audio.src = blobUrl;
 
-      // 2. Emotion Hack (Speed/Pitch)
+      // Emotion Hack (Speed/Pitch)
       if (emotion === 'HAPPY') audio.playbackRate = 1.15;
       else if (emotion === 'SAD') audio.playbackRate = 0.85;
       else if (emotion === 'ANGRY') audio.playbackRate = 1.25;
       else audio.playbackRate = 1.0;
 
-      // 3. Handlers
+      // Handlers
       audio.onplay = () => {
         setIsSpeaking(true);
         setDebugStatus("Playing (Google Proxy)");
@@ -164,7 +177,7 @@ function App() {
       audio.onended = () => {
         setIsSpeaking(false);
         setDebugStatus("Ready");
-        URL.revokeObjectURL(blobUrl); // Cleanup
+        URL.revokeObjectURL(blobUrl); 
       };
 
       audio.onerror = (e) => {
@@ -177,7 +190,6 @@ function App() {
 
     } catch (error) {
       console.error("TTS Proxy Error:", error);
-      // If server fails, use System Voice (Safety Net)
       fallbackSystemSpeak(text);
     }
   };
