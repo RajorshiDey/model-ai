@@ -168,9 +168,9 @@ function App() {
 
       // 2. Set Speed (Since pitch correction is OFF, faster = higher pitch = younger)
       // 1.2 is a good "Young American Girl" baseline
-      if (emotion === 'HAPPY') audio.playbackRate = 1.25; 
-      else if (emotion === 'SAD') audio.playbackRate = 0.9; 
-      else if (emotion === 'ANGRY') audio.playbackRate = 1.3;
+      if (emotion === 'HAPPY') audio.playbackRate = 1.1; 
+      else if (emotion === 'SAD') audio.playbackRate = 1; 
+      else if (emotion === 'ANGRY') audio.playbackRate = 1.2;
       else audio.playbackRate = 1.2; // Default Young Pitch
 
       // Handlers
